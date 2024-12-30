@@ -74,17 +74,18 @@ server.setRequestHandler(ReadResourceRequestSchema, async () => {
  * Exposes a single "chat" tool that lets clients chat with another AI.
  */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const toolName = `ask-${AI_CHAT_NAME_CLEAN}`;
   return {
     tools: [
       {
-        name: `chat-with-${AI_CHAT_NAME_CLEAN}`,
-        description: `Text chat with ${AI_CHAT_NAME}`,
+        name: toolName,
+        description: `Ask ${AI_CHAT_NAME} a question`,
         inputSchema: {
           type: "object",
           properties: {
             content: {
               type: "string",
-              description: `The content of the chat to send to ${AI_CHAT_NAME}`,
+              description: `The question to ask ${AI_CHAT_NAME}`,
             }
           },
           required: ["content"]
@@ -99,13 +100,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  * Connects to an OpenAI SDK compatible AI Integration.
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  switch (request.params.name) {
-    case `chat-with-${AI_CHAT_NAME_CLEAN}`: {
-      const content = String(request.params.arguments?.content)
-      if (!content) {
-        throw new Error("Content is required")
+  try {
+    const { name, arguments: args } = request.params;
+    
+    // Only handle our specific tool
+    if (name === `ask-${AI_CHAT_NAME_CLEAN}`) {
+      if (!args?.content) {
+        throw new Error("Content is required");
       }
 
+      const content = String(args.content);
+      
       const client = new OpenAI({
         apiKey: AI_CHAT_KEY,
         baseURL: AI_CHAT_BASE_URL,
@@ -116,19 +121,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         model: AI_CHAT_MODEL,
       });
 
-      // console.log(chatCompletion.choices[0]!.message?.content);
       return {
         content: [
           {
             type: "text",
-            text: chatCompletion.choices[0]!.message?.content
+            text: chatCompletion.choices[0]?.message?.content || "No response"
           }
-        ]
-      }
+        ],
+        isError: false
+      };
     }
 
-    default:
-      throw new Error("Unknown tool");
+    // For any other tool, return error response
+    return {
+      content: [{ type: "text", text: `Unknown tool: ${name}` }],
+      isError: true
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`
+        }
+      ],
+      isError: true
+    };
   }
 });
 
